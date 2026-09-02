@@ -4,6 +4,11 @@ import (
 	"fmt"
 	"net/http"
 	"io"
+	"strings"
+	"path/filepath"
+	"os"
+	"mime"
+	"crypto/rand"
 	"encoding/base64"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
@@ -43,7 +48,11 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	}
 	defer file.Close()
 
-	fileType := header.Header.Get("Content-Type")
+	fileType, _, err := mime.ParseMediaType(header.Header.Get("Content-Type"))
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Couldn't parse content type", err)
+		return
+	}
 	if fileType != "image/jpeg" && fileType != "image/png" {
 		respondWithError(w, http.StatusBadRequest, "Invalid file type", nil)
 		return
@@ -65,8 +74,27 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	encodedThumbnail := base64.StdEncoding.EncodeToString(thumbnailData)
-	thumbnailURL := fmt.Sprintf("data:%v;base64,%v", fileType, encodedThumbnail)
+	fileNameData := make([]byte, 32)
+	if _, err := rand.Read(fileNameData); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to generate file name", err)
+		return
+	}
+	fileName := base64.RawURLEncoding.EncodeToString(fileNameData)
+	fileTypeFormatted := strings.TrimPrefix(fileType, "image/")
+	thumbnailFilePath := filepath.Join(cfg.assetsRoot, fileName + "." + fileTypeFormatted)
+
+	thumbnailFile, err := os.Create(thumbnailFilePath)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't create thumbnail file", err)
+		return
+	}
+	defer thumbnailFile.Close()
+	if _, err := thumbnailFile.Write(thumbnailData); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't write to thumbnail file", err)
+		return
+	}
+
+	thumbnailURL := fmt.Sprintf("http://localhost:%v/assets/%v.%v", cfg.port, fileName, fileTypeFormatted)
 	videoData.ThumbnailURL = &thumbnailURL
 
 	if err := cfg.db.UpdateVideo(videoData); err != nil {
