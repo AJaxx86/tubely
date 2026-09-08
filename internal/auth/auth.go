@@ -118,3 +118,11 @@ func GetAPIKey(headers http.Header) (string, error) {
 
 	return splitAuth[1], nil
 }
+
+func MakeByteHex(size int64) (string, error) {
+	bytes := make([]byte, size)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
+}
