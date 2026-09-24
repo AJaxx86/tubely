@@ -10,12 +10,8 @@ import (
 	"errors"
 	"encoding/json"
 	"bytes"
-	"time"
-	"context"
-	"strings"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
-	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/database"
 	"github.com/google/uuid"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
@@ -129,7 +125,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	newVidURL := cfg.s3Bucket + "," + videoKey
+	newVidURL := cfg.s3CfDistribution + "/" + videoKey
 	video.VideoURL = &newVidURL
 
 	err = cfg.db.UpdateVideo(video)
@@ -137,32 +133,8 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Failed to update video database entry", err)
 		return
 	}
-	signedVideo, err := cfg.dbVideoToSignedVideo(video)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Failed to generate signed URL", err)
-		return
-	}
 
-	respondWithJSON(w, http.StatusOK, signedVideo)
-}
-
-
-func (cfg *apiConfig) dbVideoToSignedVideo(video database.Video) (database.Video, error) {
-	if video.VideoURL == nil {
-		return video, nil
-	}
-
-	splitURL := strings.Split(*video.VideoURL, ",")
-	bucket := splitURL[0]
-	key := splitURL[1]
-
-	signedURL, err := generatePresignedURL(cfg.s3Client, bucket, key, 5 * time.Minute)
-	if err != nil {
-		return video, errors.New("failed to generate signed URL: " + err.Error())
-	}
-
-	video.VideoURL = &signedURL
-	return video, nil
+	respondWithJSON(w, http.StatusOK, newVidURL)
 }
 
 
@@ -230,22 +202,4 @@ func processVideoForFastStart(filepath string) (string, error) {
 		return "", err
 	}
 	return outputPath, nil
-}
-
-
-func generatePresignedURL(s3Client *s3.Client, bucket, key string, expireTime time.Duration) (string, error) {
-	client := s3.NewPresignClient(s3Client)
-	req, err := client.PresignGetObject(
-		context.Background(),
-		&s3.GetObjectInput{
-			Bucket: &bucket,
-			Key:    &key,
-		},
-		s3.WithPresignExpires(expireTime),
-	)
-
-	if err != nil {
-		return "", err
-	}
-	return req.URL, nil
 }
